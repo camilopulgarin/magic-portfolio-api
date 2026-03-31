@@ -1,7 +1,9 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { swaggerConfig, swaggerOptions } from './infrastructure/config';
 
 /**
  * Bootstrap the NestJS application
@@ -37,11 +39,20 @@ async function bootstrap() {
     exclude: ['/'], // Exclude health check from prefix
   });
 
+  // Swagger documentation setup
+  if (process.env.NODE_ENV !== 'production') {
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, swaggerOptions);
+  }
+
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
 
   logger.log(`Application running on http://localhost:${port}`);
   logger.log(`API available at http://localhost:${port}/api`);
+  if (process.env.NODE_ENV !== 'production') {
+    logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
+  }
 }
 
 bootstrap();
