@@ -10,6 +10,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RATE_LIMIT } from '../common/constants';
 import {
@@ -48,21 +56,46 @@ interface RefreshRequest extends Request {
  * Auth controller - handles authentication endpoints
  * Applies rate limiting to prevent brute force attacks
  */
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
    * Register a new user
-   * @param dto - Registration data
-   * @param userAgent - Client user agent
-   * @param ip - Client IP address
-   * @returns Auth response with user and tokens
    */
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @Throttle({
     default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiHeader({
+    name: 'user-agent',
+    required: false,
+    description: 'Browser/client identifier (sent automatically)',
+  })
+  @ApiOperation({
+    summary: 'Register a new user',
+    description:
+      'Creates a new user account with email, password, full name, and username. Returns JWT tokens and user profile.',
+  })
+  @ApiBody({ type: RegisterDto })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'User successfully registered',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid input data or validation error',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'Email or username already registered',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (max 5 requests per 60 seconds)',
   })
   async register(
     @Body() dto: RegisterDto,
@@ -85,15 +118,35 @@ export class AuthController {
 
   /**
    * Login with email/password
-   * @param dto - Login credentials
-   * @param userAgent - Client user agent
-   * @param ip - Client IP address
-   * @returns Auth response with user and tokens
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiHeader({
+    name: 'user-agent',
+    required: false,
+    description: 'Browser/client identifier (sent automatically)',
+  })
+  @ApiOperation({
+    summary: 'Login with credentials',
+    description:
+      'Authenticates a user with email and password. Returns JWT tokens and user profile. A session is created for token refresh.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Login successful',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid email or password',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (max 5 requests per 60 seconds)',
   })
   async login(
     @Body() dto: LoginDto,
@@ -117,15 +170,32 @@ export class AuthController {
   /**
    * Refresh access token
    * Rotates refresh token for security
-   * @param req - Request with refresh token payload
-   * @param dto - Refresh token DTO
-   * @returns New token pair
    */
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtRefreshGuard)
   @Throttle({
     default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Refresh access token',
+    description:
+      'Exchanges a valid refresh token for a new token pair. The old refresh token is rotated for security (one-time use).',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Tokens refreshed successfully',
+    type: TokensResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or expired refresh token',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded',
   })
   async refresh(
     @Req() req: RefreshRequest,
@@ -146,11 +216,25 @@ export class AuthController {
   /**
    * Logout user
    * Invalidates the session
-   * @param dto - Contains refresh token to invalidate
    */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Logout user',
+    description:
+      'Invalidates the session associated with the provided refresh token. Requires a valid access token.',
+  })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Logout successful, session invalidated',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or missing access token',
+  })
   async logout(@Body() dto: RefreshTokenDto): Promise<void> {
     await this.authService.logout(dto.refreshToken);
   }
@@ -159,28 +243,36 @@ export class AuthController {
    * Google OAuth mock endpoint
    * For development/testing - accepts mock JSON token
    *
-   * @param dto - Contains mock Google ID token (JSON string)
-   * @param userAgent - Client user agent
-   * @param ip - Client IP address
-   * @returns Auth response with user and tokens
-   *
-   * @todo Replace with real Google OAuth flow:
-   * ```
-   * @Get('google')
-   * @UseGuards(GoogleAuthGuard)
-   * googleAuth() {}
-   *
-   * @Get('google/callback')
-   * @UseGuards(GoogleAuthGuard)
-   * googleCallback(@Req() req) {
-   *   return this.authService.authenticateOAuth('google', req.user);
-   * }
-   * ```
+   * @todo Replace with real Google OAuth flow
    */
   @Post('google/mock')
   @HttpCode(HttpStatus.OK)
   @Throttle({
     default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiHeader({
+    name: 'user-agent',
+    required: false,
+    description: 'Browser/client identifier (sent automatically)',
+  })
+  @ApiOperation({
+    summary: 'Google OAuth mock login',
+    description:
+      'Development-only endpoint that simulates Google OAuth login. Accepts a JSON string with Google user data (sub, email, name, picture). Will be replaced with real OAuth flow in production.',
+  })
+  @ApiBody({ type: GoogleMockDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'OAuth authentication successful',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid Google ID token format',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded',
   })
   async googleMock(
     @Body() dto: GoogleMockDto,
@@ -207,11 +299,24 @@ export class AuthController {
 
   /**
    * Get current user profile
-   * @param req - Request with authenticated user
-   * @returns User profile without sensitive data
    */
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get current user profile',
+    description:
+      'Returns the authenticated user profile data. Requires a valid access token in the Authorization header.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'User profile retrieved successfully',
+    type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Invalid or missing access token',
+  })
   async getMe(@Req() req: AuthenticatedRequest): Promise<UserResponseDto> {
     const user = await this.authService.getMe(req.user.sub);
     return user as UserResponseDto;
