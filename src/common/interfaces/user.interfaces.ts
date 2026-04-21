@@ -94,6 +94,13 @@ export interface IUsersRepository {
    * @returns User if either email or username exists
    */
   findByEmailOrUsername(email: string, username: string): Promise<IUser | null>;
+
+  /**
+   * Update the hashed password of a user
+   * @param id - User's UUID
+   * @param passwordHash - New bcrypt password hash
+   */
+  updatePassword(id: string, passwordHash: string): Promise<void>;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Ip,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -31,6 +32,7 @@ import {
   TokensResponseDto,
   UserResponseDto,
 } from './dto/auth-response.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { GoogleMockDto } from './dto/google-mock.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -295,6 +297,51 @@ export class AuthController {
       refreshToken: result.tokens.refreshToken,
       user: result.user as UserResponseDto,
     };
+  }
+
+  /**
+   * Change the authenticated user's password
+   */
+  @Patch('change-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @Throttle({
+    default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Change user password',
+    description:
+      'Changes the authenticated user password. Requires the current password for verification. Not available for OAuth-only accounts.',
+  })
+  @ApiBody({ type: ChangePasswordDto })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Password changed successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description:
+      'New password is the same as current, or account uses OAuth authentication',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description:
+      'Invalid or missing access token, or incorrect current password',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (max 5 requests per 60 seconds)',
+  })
+  async changePassword(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    await this.authService.changePassword(
+      req.user.sub,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   /**

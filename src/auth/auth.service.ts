@@ -301,4 +301,53 @@ export class AuthService {
 
     return toUserPublic(user);
   }
+
+  /**
+   * Change the authenticated user's password
+   * @param userId - User ID from JWT
+   * @param currentPassword - Current plain text password for verification
+   * @param newPassword - New plain text password to set
+   * @throws UnauthorizedException if user not found or current password is wrong
+   * @throws BadRequestException if user has no password (OAuth-only) or new password matches current
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.usersRepository.findById(userId);
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'This account uses OAuth authentication and does not have a password',
+      );
+    }
+
+    const isCurrentPasswordValid = await this.passwordService.compare(
+      currentPassword,
+      user.passwordHash,
+    );
+
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const isSamePassword = await this.passwordService.compare(
+      newPassword,
+      user.passwordHash,
+    );
+
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'New password must be different from the current password',
+      );
+    }
+
+    const newPasswordHash = await this.passwordService.hash(newPassword);
+    await this.usersRepository.updatePassword(userId, newPasswordHash);
+  }
 }
