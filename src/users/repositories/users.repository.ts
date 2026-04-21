@@ -123,4 +123,16 @@ export class UsersRepository implements IUsersRepository {
       },
     });
   }
+
+  /**
+   * Update the hashed password of a user
+   * @param id - User's UUID
+   * @param passwordHash - New bcrypt password hash
+   */
+  async updatePassword(id: string, passwordHash: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash },
+    });
+  }
 }
