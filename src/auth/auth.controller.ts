@@ -8,6 +8,7 @@ import {
   Ip,
   Patch,
   Post,
+  Redirect,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -33,10 +34,10 @@ import {
   UserResponseDto,
 } from './dto/auth-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { GoogleMockDto } from './dto/google-mock.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
 
@@ -52,6 +53,13 @@ interface AuthenticatedRequest extends Request {
  */
 interface RefreshRequest extends Request {
   user: IJwtRefreshPayload & { refreshToken: string };
+}
+
+/**
+ * Request populated by Passport Google strategy
+ */
+interface GoogleOAuthRequest extends Request {
+  user: import('../common/interfaces/oauth.interfaces').IOAuthProfile;
 }
 
 /**
@@ -242,61 +250,60 @@ export class AuthController {
   }
 
   /**
-   * Google OAuth mock endpoint
-   * For development/testing - accepts mock JSON token
-   *
-   * @todo Replace with real Google OAuth flow
+   * Initiate Google OAuth redirect flow
+   * Redirects the browser to Google's consent screen
    */
-  @Post('google/mock')
-  @HttpCode(HttpStatus.OK)
-  @Throttle({
-    default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
-  })
-  @ApiHeader({
-    name: 'user-agent',
-    required: false,
-    description: 'Browser/client identifier (sent automatically)',
-  })
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
   @ApiOperation({
-    summary: 'Google OAuth mock login',
+    summary: 'Start Google OAuth login',
     description:
-      'Development-only endpoint that simulates Google OAuth login. Accepts a JSON string with Google user data (sub, email, name, picture). Will be replaced with real OAuth flow in production.',
-  })
-  @ApiBody({ type: GoogleMockDto })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'OAuth authentication successful',
-    type: AuthResponseDto,
+      "Redirects the user to Google's consent screen. Not callable directly from Swagger — open in a browser tab instead.",
   })
   @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid Google ID token format',
+    status: HttpStatus.FOUND,
+    description: 'Redirects to Google OAuth consent screen',
+  })
+  googleLogin(): void {
+    // Passport handles the redirect — this body is never executed
+  }
+
+  /**
+   * Google OAuth callback
+   * Google redirects here after the user grants consent.
+   * Creates a session and redirects the frontend with JWT tokens.
+   */
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @Redirect()
+  @ApiOperation({
+    summary: 'Google OAuth callback',
+    description:
+      'Handled automatically by Google after consent. Creates a session and redirects to the frontend with accessToken and refreshToken as query params.',
   })
   @ApiResponse({
-    status: HttpStatus.TOO_MANY_REQUESTS,
-    description: 'Rate limit exceeded',
+    status: HttpStatus.FOUND,
+    description: 'Redirects to frontend /auth/callback with tokens',
   })
-  async googleMock(
-    @Body() dto: GoogleMockDto,
+  async googleCallback(
+    @Req() req: GoogleOAuthRequest,
     @Headers('user-agent') userAgent?: string,
     @Ip() ip?: string,
-  ): Promise<AuthResponseDto> {
+  ): Promise<{ url: string }> {
     const metadata: ISessionMetadata = {
       userAgent,
       ipAddress: ip,
     };
 
-    const result = await this.authService.authenticateOAuth(
-      'google',
-      dto.googleIdToken,
+    const result = await this.authService.authenticateOAuthProfile(
+      req.user,
       metadata,
     );
 
-    return {
-      accessToken: result.tokens.accessToken,
-      refreshToken: result.tokens.refreshToken,
-      user: result.user as UserResponseDto,
-    };
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
+    const url = `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(result.tokens.accessToken)}&refreshToken=${encodeURIComponent(result.tokens.refreshToken)}`;
+
+    return { url };
   }
 
   /**

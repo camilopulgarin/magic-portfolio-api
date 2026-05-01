@@ -14,8 +14,15 @@ import {
 import { AuthService } from './auth.service';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
-import { GoogleMockStrategy } from './strategies/google-mock.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { OAuthStrategyRegistry } from './strategies/oauth-registry';
+
+// Minimal mock — avoids the ConfigService dependency in unit tests
+const mockGoogleStrategy: Partial<GoogleStrategy> = {
+  provider: 'google',
+  validate: jest.fn(),
+  validateAndGetProfile: jest.fn(),
+};
 
 describe('AuthService', () => {
   let authService: AuthService;
@@ -54,6 +61,7 @@ describe('AuthService', () => {
       findByEmailOrUsername: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updatePassword: jest.fn(),
     };
 
     const mockSessionsRepository: jest.Mocked<ISessionsRepository> = {
@@ -87,7 +95,7 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        GoogleMockStrategy,
+        { provide: GoogleStrategy, useValue: mockGoogleStrategy },
         OAuthStrategyRegistry,
         {
           provide: USERS_REPOSITORY,

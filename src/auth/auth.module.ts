@@ -11,7 +11,7 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
-import { GoogleMockStrategy } from './strategies/google-mock.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { OAuthStrategyRegistry } from './strategies/oauth-registry';
@@ -49,7 +49,7 @@ import { OAuthStrategyRegistry } from './strategies/oauth-registry';
     PasswordService,
     JwtAccessStrategy,
     JwtRefreshStrategy,
-    GoogleMockStrategy,
+    GoogleStrategy,
     OAuthStrategyRegistry,
     JwtAuthGuard,
     {
