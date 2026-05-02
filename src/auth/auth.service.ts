@@ -11,7 +11,10 @@ import type {
   ISessionMetadata,
   IUserPublic,
 } from '../common/interfaces/auth.interfaces';
-import type { IOAuthAccountsRepository } from '../common/interfaces/oauth.interfaces';
+import type {
+  IOAuthAccountsRepository,
+  IOAuthProfile,
+} from '../common/interfaces/oauth.interfaces';
 import { OAUTH_ACCOUNTS_REPOSITORY } from '../common/interfaces/oauth.interfaces';
 import type {
   ISessionsRepository,
@@ -274,6 +277,52 @@ export class AuthService {
     );
 
     // Update session with refresh token
+    await this.sessionsRepository.updateRefreshToken(
+      sessionId,
+      tokens.refreshToken,
+      this.tokenService.getRefreshTokenExpiryDate(),
+    );
+
+    return {
+      user: toUserPublic(user),
+      tokens,
+    };
+  }
+
+  /**
+   * Authenticate using an already-resolved OAuth profile.
+   * Used by the redirect flow where Passport has already validated
+   * the authorization code and populated req.user with IOAuthProfile.
+   * @param profile - Normalized OAuth profile from Passport strategy
+   * @param metadata - Session metadata (user agent, IP)
+   * @returns Auth result with user and tokens
+   */
+  async authenticateOAuthProfile(
+    profile: IOAuthProfile,
+    metadata?: ISessionMetadata,
+  ): Promise<IAuthResult> {
+    const userId = await this.oauthAccountsRepository.upsertWithUser(profile);
+
+    const user = await this.usersRepository.findById(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('Failed to authenticate with OAuth');
+    }
+
+    const sessionId = await this.sessionsRepository.create(
+      user.id,
+      '',
+      this.tokenService.getRefreshTokenExpiryDate(),
+      metadata,
+    );
+
+    const tokens = await this.tokenService.generateTokens(
+      user.id,
+      user.email,
+      user.username,
+      sessionId,
+    );
+
     await this.sessionsRepository.updateRefreshToken(
       sessionId,
       tokens.refreshToken,

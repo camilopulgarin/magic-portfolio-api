@@ -3,7 +3,7 @@ import {
   IOAuthStrategy,
   OAuthProvider,
 } from '../../common/interfaces/oauth.interfaces';
-import { GoogleMockStrategy } from './google-mock.strategy';
+import { GoogleStrategy } from './google.strategy';
 
 /**
  * OAuth Strategy Registry
@@ -19,9 +19,9 @@ import { GoogleMockStrategy } from './google-mock.strategy';
 export class OAuthStrategyRegistry {
   private readonly strategies: Map<OAuthProvider, IOAuthStrategy> = new Map();
 
-  constructor(private readonly googleMockStrategy: GoogleMockStrategy) {
+  constructor(private readonly googleStrategy: GoogleStrategy) {
     // Register default strategies
-    this.register(googleMockStrategy);
+    this.register(googleStrategy);
   }
 
   /**
