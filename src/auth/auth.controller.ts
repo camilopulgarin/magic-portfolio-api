@@ -10,6 +10,7 @@ import {
   Post,
   Redirect,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -21,6 +22,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { RATE_LIMIT } from '../common/constants';
 import {
   IJwtPayload,
@@ -61,6 +63,23 @@ interface RefreshRequest extends Request {
 interface GoogleOAuthRequest extends Request {
   user: import('../common/interfaces/oauth.interfaces').IOAuthProfile;
 }
+
+/** Shared httpOnly cookie options */
+const COOKIE_BASE = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+} as const;
+
+const ACCESS_COOKIE_OPTIONS = {
+  ...COOKIE_BASE,
+  maxAge: 15 * 60 * 1000, // 15 min
+};
+
+const REFRESH_COOKIE_OPTIONS = {
+  ...COOKIE_BASE,
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
 
 /**
  * Auth controller - handles authentication endpoints
@@ -109,6 +128,7 @@ export class AuthController {
   })
   async register(
     @Body() dto: RegisterDto,
+    @Res({ passthrough: true }) res: Response,
     @Headers('user-agent') userAgent?: string,
     @Ip() ip?: string,
   ): Promise<AuthResponseDto> {
@@ -118,6 +138,17 @@ export class AuthController {
     };
 
     const result = await this.authService.register(dto, metadata);
+
+    res.cookie(
+      'access_token',
+      result.tokens.accessToken,
+      ACCESS_COOKIE_OPTIONS,
+    );
+    res.cookie(
+      'refresh_token',
+      result.tokens.refreshToken,
+      REFRESH_COOKIE_OPTIONS,
+    );
 
     return {
       accessToken: result.tokens.accessToken,
@@ -160,6 +191,7 @@ export class AuthController {
   })
   async login(
     @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
     @Headers('user-agent') userAgent?: string,
     @Ip() ip?: string,
   ): Promise<AuthResponseDto> {
@@ -169,6 +201,17 @@ export class AuthController {
     };
 
     const result = await this.authService.login(dto, metadata);
+
+    res.cookie(
+      'access_token',
+      result.tokens.accessToken,
+      ACCESS_COOKIE_OPTIONS,
+    );
+    res.cookie(
+      'refresh_token',
+      result.tokens.refreshToken,
+      REFRESH_COOKIE_OPTIONS,
+    );
 
     return {
       accessToken: result.tokens.accessToken,
@@ -209,6 +252,7 @@ export class AuthController {
   })
   async refresh(
     @Req() req: RefreshRequest,
+    @Res({ passthrough: true }) res: Response,
     @Body() dto: RefreshTokenDto,
   ): Promise<TokensResponseDto> {
     const tokens = await this.authService.refreshTokens(
@@ -216,6 +260,9 @@ export class AuthController {
       req.user.sessionId,
       req.user.refreshToken,
     );
+
+    res.cookie('access_token', tokens.accessToken, ACCESS_COOKIE_OPTIONS);
+    res.cookie('refresh_token', tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
 
     return {
       accessToken: tokens.accessToken,
@@ -245,8 +292,20 @@ export class AuthController {
     status: HttpStatus.UNAUTHORIZED,
     description: 'Invalid or missing access token',
   })
-  async logout(@Body() dto: RefreshTokenDto): Promise<void> {
-    await this.authService.logout(dto.refreshToken);
+  async logout(
+    @Body() dto: RefreshTokenDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    // Accept token from body (API clients) or cookie (browser clients)
+    const token =
+      dto.refreshToken ??
+      (res.req as { cookies?: { refresh_token?: string } }).cookies
+        ?.refresh_token;
+    if (token) {
+      await this.authService.logout(token);
+    }
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
   }
 
   /**
@@ -287,6 +346,7 @@ export class AuthController {
   })
   async googleCallback(
     @Req() req: GoogleOAuthRequest,
+    @Res({ passthrough: true }) res: Response,
     @Headers('user-agent') userAgent?: string,
     @Ip() ip?: string,
   ): Promise<{ url: string }> {
@@ -300,10 +360,20 @@ export class AuthController {
       metadata,
     );
 
-    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
-    const url = `${frontendUrl}/auth/callback?accessToken=${encodeURIComponent(result.tokens.accessToken)}&refreshToken=${encodeURIComponent(result.tokens.refreshToken)}`;
+    // Set httpOnly cookies — frontend receives tokens without touching query params
+    res.cookie(
+      'access_token',
+      result.tokens.accessToken,
+      ACCESS_COOKIE_OPTIONS,
+    );
+    res.cookie(
+      'refresh_token',
+      result.tokens.refreshToken,
+      REFRESH_COOKIE_OPTIONS,
+    );
 
-    return { url };
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3001';
+    return { url: `${frontendUrl}/auth/callback` };
   }
 
   /**

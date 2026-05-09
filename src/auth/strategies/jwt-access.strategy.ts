@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
+import { Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { IJwtPayload } from '../../common/interfaces/auth.interfaces';
 
 /**
  * JWT Access Token Strategy
- * Validates access tokens from Authorization header
+ * Reads token from Authorization header (Bearer) OR cookie 'access_token'.
+ * Header takes priority — existing clients are unaffected.
  */
 @Injectable()
 export class JwtAccessStrategy extends PassportStrategy(
@@ -15,17 +17,17 @@ export class JwtAccessStrategy extends PassportStrategy(
 ) {
   constructor(configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        // 1st: standard Authorization: Bearer header (Swagger, mobile, etc.)
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        // 2nd: httpOnly cookie (Next.js / browser clients)
+        (req: Request) => (req?.cookies?.access_token as string | null) ?? null,
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
     });
   }
 
-  /**
-   * Validate JWT payload and attach to request
-   * @param payload - Decoded JWT payload
-   * @returns Payload to be attached to request.user
-   */
   async validate(payload: IJwtPayload): Promise<IJwtPayload> {
     return {
       sub: payload.sub,
