@@ -4,6 +4,10 @@ import { SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { swaggerConfig, swaggerOptions } from './infrastructure/config';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const cookieParser = require('cookie-parser') as () => ReturnType<
+  typeof import('cookie-parser')
+>;
 
 /**
  * Bootstrap the NestJS application
@@ -15,6 +19,7 @@ async function bootstrap() {
 
   // Security middleware
   app.use(helmet());
+  app.use(cookieParser());
 
   // Enable CORS for frontend
   app.enableCors({

@@ -22,7 +22,13 @@ export class JwtRefreshStrategy extends PassportStrategy(
     private readonly sessionsRepository: ISessionsRepository,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromBodyField('refreshToken'),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        // 1st: body field (existing behavior — Swagger, API clients)
+        ExtractJwt.fromBodyField('refreshToken'),
+        // 2nd: httpOnly cookie (browser / Next.js clients)
+        (req: Request) =>
+          (req?.cookies?.refresh_token as string | null) ?? null,
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
       passReqToCallback: true,
@@ -39,7 +45,10 @@ export class JwtRefreshStrategy extends PassportStrategy(
     req: Request,
     payload: IJwtRefreshPayload,
   ): Promise<IJwtRefreshPayload & { refreshToken: string }> {
-    const refreshToken = req.body?.refreshToken;
+    // Accept token from body (existing clients) OR cookie (browser clients)
+    const refreshToken =
+      (req.body?.refreshToken as string | undefined) ??
+      (req.cookies?.refresh_token as string | undefined);
 
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token not provided');
