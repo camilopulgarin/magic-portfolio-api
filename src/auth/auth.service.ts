@@ -5,22 +5,28 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
+import { PASSWORD_RESET } from '../common/constants';
 import type {
   IAuthResult,
   IAuthTokens,
   ISessionMetadata,
   IUserPublic,
 } from '../common/interfaces/auth.interfaces';
+import type { IEmailService } from '../common/interfaces/email.interfaces';
+import { EMAIL_SERVICE } from '../common/interfaces/email.interfaces';
 import type {
   IOAuthAccountsRepository,
   IOAuthProfile,
 } from '../common/interfaces/oauth.interfaces';
 import { OAUTH_ACCOUNTS_REPOSITORY } from '../common/interfaces/oauth.interfaces';
 import type {
+  IPasswordResetTokensRepository,
   ISessionsRepository,
   IUsersRepository,
 } from '../common/interfaces/user.interfaces';
 import {
+  PASSWORD_RESET_TOKENS_REPOSITORY,
   SESSIONS_REPOSITORY,
   toUserPublic,
   USERS_REPOSITORY,
@@ -45,6 +51,10 @@ export class AuthService {
     private readonly sessionsRepository: ISessionsRepository,
     @Inject(OAUTH_ACCOUNTS_REPOSITORY)
     private readonly oauthAccountsRepository: IOAuthAccountsRepository,
+    @Inject(PASSWORD_RESET_TOKENS_REPOSITORY)
+    private readonly passwordResetTokensRepository: IPasswordResetTokensRepository,
+    @Inject(EMAIL_SERVICE)
+    private readonly emailService: IEmailService,
     private readonly tokenService: TokenService,
     private readonly passwordService: PasswordService,
     private readonly oauthRegistry: OAuthStrategyRegistry,
@@ -398,5 +408,76 @@ export class AuthService {
 
     const newPasswordHash = await this.passwordService.hash(newPassword);
     await this.usersRepository.updatePassword(userId, newPasswordHash);
+  }
+
+  /**
+   * Initiate the password reset flow.
+   * Sends an email with a one-time reset link if the account exists.
+   * Always returns without error to prevent email enumeration.
+   * @param email - Account email address
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.usersRepository.findByEmail(email);
+
+    // Silently exit for unknown / inactive / OAuth-only accounts
+    if (!user || !user.isActive || !user.passwordHash) {
+      return;
+    }
+
+    // Enforce one active token per user
+    await this.passwordResetTokensRepository.deleteByUserId(user.id);
+
+    // Generate a cryptographically secure token; store only its hash
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(plainToken)
+      .digest('hex');
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET.EXPIRY_MS);
+
+    await this.passwordResetTokensRepository.create(
+      user.id,
+      tokenHash,
+      expiresAt,
+    );
+
+    await this.emailService.sendPasswordResetEmail(
+      user.email,
+      plainToken,
+      user.fullName,
+    );
+  }
+
+  /**
+   * Complete the password reset flow.
+   * Validates the token, updates the password, invalidates all sessions.
+   * @param token - Plain-text token from the reset email
+   * @param newPassword - The user's new plain-text password
+   * @throws BadRequestException if the token is invalid, expired, or already used
+   * @throws UnauthorizedException if the associated account is disabled
+   */
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    const resetToken =
+      await this.passwordResetTokensRepository.findByTokenHash(tokenHash);
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const user = await this.usersRepository.findById(resetToken.userId);
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Account not found or disabled');
+    }
+
+    const newPasswordHash = await this.passwordService.hash(newPassword);
+
+    await this.usersRepository.updatePassword(user.id, newPasswordHash);
+    await this.passwordResetTokensRepository.markAsUsed(resetToken.id);
+
+    // Invalidate all existing sessions for security
+    await this.sessionsRepository.deleteAllForUser(user.id);
   }
 }
