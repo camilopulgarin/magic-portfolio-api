@@ -34,3 +34,11 @@ export const RATE_LIMIT = {
   AUTH_TTL: 60,
   AUTH_LIMIT: 5,
 } as const;
+
+/**
+ * Password reset configuration
+ */
+export const PASSWORD_RESET = {
+  /** Token expiry in milliseconds (1 hour) */
+  EXPIRY_MS: 60 * 60 * 1000,
+} as const;

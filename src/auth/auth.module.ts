@@ -4,11 +4,13 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { RATE_LIMIT } from '../common/constants';
+import { EMAIL_SERVICE } from '../common/interfaces/email.interfaces';
 import { OAUTH_STRATEGY_REGISTRY } from '../common/interfaces/oauth.interfaces';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { EmailService } from './services/email.service';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -47,11 +49,16 @@ import { OAuthStrategyRegistry } from './strategies/oauth-registry';
     AuthService,
     TokenService,
     PasswordService,
+    EmailService,
     JwtAccessStrategy,
     JwtRefreshStrategy,
     GoogleStrategy,
     OAuthStrategyRegistry,
     JwtAuthGuard,
+    {
+      provide: EMAIL_SERVICE,
+      useExisting: EmailService,
+    },
     {
       provide: OAUTH_STRATEGY_REGISTRY,
       useExisting: OAuthStrategyRegistry,

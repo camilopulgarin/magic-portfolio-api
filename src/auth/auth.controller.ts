@@ -36,9 +36,11 @@ import {
   UserResponseDto,
 } from './dto/auth-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtRefreshGuard } from './guards/jwt-refresh.guard';
@@ -444,5 +446,62 @@ export class AuthController {
   async getMe(@Req() req: AuthenticatedRequest): Promise<UserResponseDto> {
     const user = await this.authService.getMe(req.user.sub);
     return user as UserResponseDto;
+  }
+
+  /**
+   * Request a password reset email
+   * Always returns 204 to prevent email enumeration
+   */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({
+    default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiOperation({
+    summary: 'Request a password reset email',
+    description:
+      'Sends a one-time reset link to the provided email address if an account exists. Always responds with 204 to prevent email enumeration.',
+  })
+  @ApiBody({ type: ForgotPasswordDto })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Reset email sent if account exists',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (max 5 requests per 60 seconds)',
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<void> {
+    await this.authService.forgotPassword(dto.email);
+  }
+
+  /**
+   * Reset password using one-time token from email
+   */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({
+    default: { ttl: RATE_LIMIT.AUTH_TTL * 1000, limit: RATE_LIMIT.AUTH_LIMIT },
+  })
+  @ApiOperation({
+    summary: 'Reset password with one-time token',
+    description:
+      'Validates the reset token received by email and updates the account password. All existing sessions are invalidated on success.',
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'Password reset successfully, all sessions invalidated',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid, expired, or already-used reset token',
+  })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description: 'Rate limit exceeded (max 5 requests per 60 seconds)',
+  })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }

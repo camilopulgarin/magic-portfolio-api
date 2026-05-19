@@ -1,13 +1,16 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { EMAIL_SERVICE } from '../common/interfaces/email.interfaces';
 import {
   IOAuthAccountsRepository,
   OAUTH_ACCOUNTS_REPOSITORY,
 } from '../common/interfaces/oauth.interfaces';
 import {
+  IPasswordResetTokensRepository,
   ISessionsRepository,
   IUser,
   IUsersRepository,
+  PASSWORD_RESET_TOKENS_REPOSITORY,
   SESSIONS_REPOSITORY,
   USERS_REPOSITORY,
 } from '../common/interfaces/user.interfaces';
@@ -78,6 +81,18 @@ describe('AuthService', () => {
       linkToUser: jest.fn(),
     };
 
+    const mockPasswordResetTokensRepository: jest.Mocked<IPasswordResetTokensRepository> =
+      {
+        create: jest.fn(),
+        findByTokenHash: jest.fn(),
+        markAsUsed: jest.fn(),
+        deleteByUserId: jest.fn(),
+      };
+
+    const mockEmailService = {
+      sendPasswordResetEmail: jest.fn(),
+    };
+
     const mockTokenService = {
       generateTokens: jest.fn(),
       generateAccessToken: jest.fn(),
@@ -108,6 +123,14 @@ describe('AuthService', () => {
         {
           provide: OAUTH_ACCOUNTS_REPOSITORY,
           useValue: mockOAuthAccountsRepository,
+        },
+        {
+          provide: PASSWORD_RESET_TOKENS_REPOSITORY,
+          useValue: mockPasswordResetTokensRepository,
+        },
+        {
+          provide: EMAIL_SERVICE,
+          useValue: mockEmailService,
         },
         {
           provide: TokenService,

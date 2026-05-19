@@ -167,6 +167,60 @@ export const USERS_REPOSITORY = 'USERS_REPOSITORY';
 export const SESSIONS_REPOSITORY = 'SESSIONS_REPOSITORY';
 
 /**
+ * Password reset token entity as stored in database
+ */
+export interface IPasswordResetToken {
+  id: string;
+  tokenHash: string;
+  userId: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
+}
+
+/**
+ * Password reset tokens repository interface
+ * Follows ISP: only methods required by the password-reset flow
+ */
+export interface IPasswordResetTokensRepository {
+  /**
+   * Persist a new reset token for a user
+   * @param userId - Owner's UUID
+   * @param tokenHash - SHA-256 hash of the plain token
+   * @param expiresAt - Token expiry date
+   */
+  create(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<IPasswordResetToken>;
+
+  /**
+   * Look up a token by its hash
+   * @param tokenHash - SHA-256 hash of the plain token
+   * @returns Token record if found, null otherwise
+   */
+  findByTokenHash(tokenHash: string): Promise<IPasswordResetToken | null>;
+
+  /**
+   * Mark a token as consumed so it cannot be reused
+   * @param id - Token UUID
+   */
+  markAsUsed(id: string): Promise<void>;
+
+  /**
+   * Remove all pending reset tokens for a user
+   * Called before issuing a new token to enforce one-active-token policy
+   * @param userId - User's UUID
+   */
+  deleteByUserId(userId: string): Promise<void>;
+}
+
+/** Injection token for IPasswordResetTokensRepository */
+export const PASSWORD_RESET_TOKENS_REPOSITORY =
+  'PASSWORD_RESET_TOKENS_REPOSITORY';
+
+/**
  * Maps IUser to IUserPublic (excludes sensitive data)
  */
 export function toUserPublic(user: IUser): IUserPublic {
