@@ -19,9 +19,7 @@ export class EmailService implements IEmailService {
     this.resend = new Resend(
       this.configService.getOrThrow<string>('RESEND_API_KEY'),
     );
-    this.fromAddress =
-      this.configService.get<string>('EMAIL_FROM') ??
-      'noreply@magic-portfolio.com';
+    this.fromAddress = this.configService.getOrThrow<string>('EMAIL_FROM');
     this.frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3001';
   }
@@ -31,30 +29,53 @@ export class EmailService implements IEmailService {
    * @param to - Recipient email address
    * @param token - Plain-text reset token
    * @param fullName - Recipient full name for personalisation
+   * @returns Object with success status and optional message
    */
   async sendPasswordResetEmail(
     to: string,
     token: string,
     fullName: string,
-  ): Promise<void> {
+  ): Promise<{ success: boolean; message?: string }> {
     const resetUrl = `${this.frontendUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
 
-    const { error } = await this.resend.emails.send({
-      from: this.fromAddress,
-      to,
-      subject: 'Reset your password – Magic Portfolio',
-      html: this.buildResetEmailHtml(fullName, resetUrl),
-    });
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromAddress,
+        to,
+        subject: 'Reset your password – Magic Portfolio',
+        html: this.buildResetEmailHtml(fullName, resetUrl),
+      });
 
-    if (error) {
+      if (error) {
+        this.logger.error(`Failed to send password reset email to ${to}`, {
+          errorName: error.name,
+          errorMessage: error.message,
+          fromAddress: this.fromAddress,
+          recipient: to,
+        });
+        return {
+          success: false,
+          message: `Email delivery failed: ${error.message}`,
+        };
+      }
+
+      this.logger.log(`Password reset email sent to ${to}`, {
+        emailId: data?.id,
+        recipient: to,
+      });
+
+      return { success: true };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(
-        `Failed to send password reset email to ${to}: ${error.message}`,
+        `Unexpected error sending password reset email to ${to}: ${errorMessage}`,
+        err instanceof Error ? err.stack : undefined,
       );
-      // Do not expose delivery failures to the caller to prevent email enumeration
-      throw new Error('Email delivery failed');
+      return {
+        success: false,
+        message: `Email service error: ${errorMessage}`,
+      };
     }
-
-    this.logger.log(`Password reset email sent to ${to}`);
   }
 
   private buildResetEmailHtml(fullName: string, resetUrl: string): string {

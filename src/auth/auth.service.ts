@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
@@ -44,6 +45,8 @@ import { OAuthStrategyRegistry } from './strategies/oauth-registry';
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(USERS_REPOSITORY)
     private readonly usersRepository: IUsersRepository,
@@ -441,11 +444,26 @@ export class AuthService {
       expiresAt,
     );
 
-    await this.emailService.sendPasswordResetEmail(
+    const emailResult = await this.emailService.sendPasswordResetEmail(
       user.email,
       plainToken,
       user.fullName,
     );
+
+    // In production we keep anti-enumeration behavior (always silent).
+    // In non-production we surface delivery errors to ease debugging.
+    if (!emailResult.success) {
+      const reason = emailResult.message ?? 'Unknown email delivery error';
+      this.logger.error(
+        `Password reset email failed for ${user.email}: ${reason}`,
+      );
+
+      if (process.env.NODE_ENV !== 'production') {
+        throw new BadRequestException(
+          `Password reset email could not be sent: ${reason}`,
+        );
+      }
+    }
   }
 
   /**
