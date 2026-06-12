@@ -11,19 +11,41 @@ import type { IEmailService } from '../../common/interfaces/email.interfaces';
 @Injectable()
 export class EmailService implements IEmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend: Resend;
+  private readonly resend?: Resend;
+  private readonly brevoApiKey?: string;
   private readonly fromAddress: string;
+  private readonly fromName: string;
   private readonly frontendUrl: string;
+  private readonly provider: 'resend' | 'brevo';
 
   constructor(private readonly configService: ConfigService) {
+    this.fromAddress = this.configService.getOrThrow<string>('EMAIL_FROM');
+    this.fromName =
+      this.configService.get<string>('EMAIL_FROM_NAME') ?? 'Magic Portfolio';
+    this.frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3001';
+
+    const configuredProvider = this.configService
+      .get<string>('EMAIL_PROVIDER')
+      ?.toLowerCase();
+
+    const hasBrevoConfig = !!this.configService.get<string>('BREVO_API_KEY');
+
+    const useBrevo =
+      configuredProvider === 'brevo' || (!configuredProvider && hasBrevoConfig);
+
+    if (useBrevo) {
+      this.provider = 'brevo';
+      this.brevoApiKey = this.configService.getOrThrow<string>('BREVO_API_KEY');
+      this.logger.log(`Email provider configured: ${this.provider}`);
+      return;
+    }
+
+    this.provider = 'resend';
     this.resend = new Resend(
       this.configService.getOrThrow<string>('RESEND_API_KEY'),
     );
-    this.fromAddress =
-      this.configService.get<string>('EMAIL_FROM') ??
-      'noreply@magic-portfolio.com';
-    this.frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3001';
+    this.logger.log(`Email provider configured: ${this.provider}`);
   }
 
   /**
@@ -31,30 +53,141 @@ export class EmailService implements IEmailService {
    * @param to - Recipient email address
    * @param token - Plain-text reset token
    * @param fullName - Recipient full name for personalisation
+   * @returns Object with success status and optional message
    */
   async sendPasswordResetEmail(
     to: string,
     token: string,
     fullName: string,
-  ): Promise<void> {
+  ): Promise<{ success: boolean; message?: string }> {
     const resetUrl = `${this.frontendUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
+    const subject = 'Reset your password - Magic Portfolio';
+    const html = this.buildResetEmailHtml(fullName, resetUrl);
+    const text = this.buildResetEmailText(fullName, resetUrl);
 
-    const { error } = await this.resend.emails.send({
-      from: this.fromAddress,
-      to,
-      subject: 'Reset your password – Magic Portfolio',
-      html: this.buildResetEmailHtml(fullName, resetUrl),
+    try {
+      if (this.provider === 'brevo') {
+        return await this.sendWithBrevo(to, subject, html, text);
+      }
+
+      const { data, error } = await this.resend!.emails.send({
+        from: this.fromAddress,
+        to,
+        subject,
+        html,
+      });
+
+      if (error) {
+        this.logger.error(`Failed to send password reset email to ${to}`, {
+          provider: this.provider,
+          errorName: error.name,
+          errorMessage: error.message,
+          fromAddress: this.fromAddress,
+          recipient: to,
+        });
+        return {
+          success: false,
+          message: `Email delivery failed: ${error.message}`,
+        };
+      }
+
+      this.logger.log(`Password reset email sent to ${to}`, {
+        provider: this.provider,
+        emailId: data?.id,
+        recipient: to,
+      });
+
+      return { success: true };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(
+        `Unexpected error sending password reset email to ${to}: ${errorMessage}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      return {
+        success: false,
+        message: `Email service error: ${errorMessage}`,
+      };
+    }
+  }
+
+  private async sendWithBrevo(
+    to: string,
+    subject: string,
+    html: string,
+    text: string,
+  ): Promise<{ success: boolean; message?: string }> {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'api-key': this.brevoApiKey!,
+      },
+      body: JSON.stringify({
+        sender: { name: this.fromName, email: this.fromAddress },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+        textContent: text,
+      }),
     });
 
-    if (error) {
-      this.logger.error(
-        `Failed to send password reset email to ${to}: ${error.message}`,
+    if (!response.ok) {
+      const responseText = await response.text();
+      const errorMessage = this.extractBrevoErrorMessage(
+        response.status,
+        responseText,
       );
-      // Do not expose delivery failures to the caller to prevent email enumeration
-      throw new Error('Email delivery failed');
+      this.logger.error(`Failed to send password reset email to ${to}`, {
+        provider: this.provider,
+        errorMessage,
+        fromAddress: this.fromAddress,
+        recipient: to,
+      });
+      return {
+        success: false,
+        message: `Email delivery failed: ${errorMessage}`,
+      };
     }
 
-    this.logger.log(`Password reset email sent to ${to}`);
+    this.logger.log(`Password reset email sent to ${to}`, {
+      provider: this.provider,
+      recipient: to,
+    });
+
+    return { success: true };
+  }
+
+  private extractBrevoErrorMessage(
+    status: number,
+    responseText: string,
+  ): string {
+    try {
+      const parsed = JSON.parse(responseText) as
+        | { message?: unknown }
+        | { code?: unknown; message?: unknown };
+      if (typeof parsed.message === 'string' && parsed.message.length > 0) {
+        return parsed.message;
+      }
+    } catch {
+      // Fallback to a generic status-based message when payload is not JSON.
+    }
+
+    return `Brevo API request failed with status ${status}`;
+  }
+
+  private buildResetEmailText(fullName: string, resetUrl: string): string {
+    return [
+      `Hi ${fullName},`,
+      '',
+      'We received a request to reset the password for your account.',
+      'Use the link below to set a new password. This link expires in 1 hour.',
+      '',
+      resetUrl,
+      '',
+      'If you did not request this, you can safely ignore this email.',
+    ].join('\n');
   }
 
   private buildResetEmailHtml(fullName: string, resetUrl: string): string {

@@ -90,7 +90,7 @@ describe('AuthService', () => {
       };
 
     const mockEmailService = {
-      sendPasswordResetEmail: jest.fn(),
+      sendPasswordResetEmail: jest.fn().mockResolvedValue({ success: true }),
     };
 
     const mockTokenService = {
