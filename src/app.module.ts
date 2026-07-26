@@ -5,6 +5,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { PortfoliosModule } from './portfolios/portfolios.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 
@@ -24,6 +25,7 @@ import { UsersModule } from './users/users.module';
     // Feature modules
     AuthModule,
     UsersModule,
+    PortfoliosModule,
   ],
   controllers: [AppController],
   providers: [
