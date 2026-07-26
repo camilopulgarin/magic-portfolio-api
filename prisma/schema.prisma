@@ -27,8 +27,28 @@ model User {
   oauthAccounts        OAuthAccount[]
   sessions             Session[]
   passwordResetTokens  PasswordResetToken[]
+  portfolios           Portfolio[]
 
   @@map("users")
+}
+
+/// Portfolio entity - represents user portfolios
+model Portfolio {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String
+  description String?
+  isPublic    Boolean  @default(false) @map("is_public")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  userId      String   @map("user_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, slug])
+  @@index([userId])
+  @@index([updatedAt])
+  @@map("portfolios")
 }
 
 /// OAuth Account - stores OAuth provider connections for users
