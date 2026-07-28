@@ -60,7 +60,7 @@ export class EmailService implements IEmailService {
     token: string,
     fullName: string,
   ): Promise<{ success: boolean; message?: string }> {
-    const resetUrl = `${this.frontendUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
+    const resetUrl = `${this.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
     const subject = 'Reset your password - Magic Portfolio';
     const html = this.buildResetEmailHtml(fullName, resetUrl);
     const text = this.buildResetEmailText(fullName, resetUrl);
